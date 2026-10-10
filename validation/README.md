@@ -15,7 +15,18 @@ workflow step works because the code exists — see `CLAUDE.md`.
 ## Scripts
 
 - `check_budgets.py` — global, area-weighted water and energy closure for one
-  ecLand run. **VERIFIED** against all 37 years of campaigns v2 and v4.
+  ecLand run. **Water closure VERIFIED; energy closure CANNOT BE PERFORMED.**
+  The "VERIFIED against all 37 years of v2 and v4" label this entry used to
+  carry was wrong: run on v4's 1989 the script prints `BUDGETS FAIL`, so it was
+  never actually run over those 37 years with its result recorded. Measured
+  2026-10-10 on v4 1988/1989/2000/2012/2024: water 0.057–0.491% of
+  precipitation, all PASS — and **not** the 1.977–2.191% that PLAN.md's sweep
+  tables report, which come from a script that is not in this repository.
+  Energy is reported INCONCLUSIVE, not FAIL, because ecLand writes
+  `DelSoilHeat` as identically zero over land (`min = max = 0` across 88,373
+  land points × 365 records), so the sum is missing soil-heat storage and is
+  not a closure; the leftover is a near-constant 3,202–3,583 EJ that straddles
+  the 1% default tolerance. Only the water result gates exit status.
 - `check_dam_commissioning.py` — proves CaMa's `LDAMYBY` stages dams in at
   their `DamYear`. **VERIFIED** 2026-10-08 against the v4/dams archive pair
   (PASS, exit 0). Its docstring records three obvious tests that do *not* work;

@@ -44,6 +44,9 @@ def interval_seconds(ds):
     u = getattr(t, "units", "").lower()
     return dt * (3600.0 if u.startswith("hour") else 86400.0 if u.startswith("day") else 1.0)
 
+# name -> True when the term was present but summed to exactly zero over land
+ZERO_ON_LAND = {}
+
 def acc(ds, name, area, dt, land):
     """Area-weighted global total, summed over time.
 
@@ -65,6 +68,11 @@ def acc(ds, name, area, dt, land):
     for i in range(v.shape[0]):                      # stream: annual files are large
         s = np.ma.filled(v[i], np.nan).astype("f8")
         np.add(tot, np.nan_to_num(s) * scale, out=tot, where=land)
+    # A term present in the file but identically zero on land is a diagnostic
+    # the model never wrote, NOT a term that happens to vanish -- and a sum
+    # that silently omits a term is not a closure. Recorded here because it
+    # costs nothing; acted on in the energy section below.
+    ZERO_ON_LAND[name] = not bool(np.any(tot[land] != 0.0))
     return float((tot * area)[land].sum())
 
 def main():
@@ -136,11 +144,34 @@ def main():
     eref = abs((et.get("SWnet") or 0) + (et.get("LWnet") or 0))
     erel = abs(eres) / eref if eref else float("nan")
     print(f"    {'RESIDUAL':14s} {eres/1e18:16.4f} EJ   ({erel:.3%} of net radiation)")
-    print("    " + ("PASS" if erel <= a.energy_tol else
-                    f"FAIL  (> {a.energy_tol:.1%})"))
-    ok &= erel <= a.energy_tol
+    # ecLand writes DelSoilHeat as identically zero at every land point
+    # (verified 2026-10-10 on v4's 1989: min = max = 0 over all 88,373 land
+    # points x 365 records). Soil heat content demonstrably does change -- the
+    # model carries SoilTemp in o_gg.nc -- so this is an undiagnosed term, and
+    # the sum above is missing the energy budget's main storage term. The
+    # leftover is then a systematic +3,200..3,600 EJ (0.93-1.04% of net
+    # radiation across v4 1988/1989/2000/2012/2024), i.e. straddling any 1%
+    # tolerance for a reason that has nothing to do with closure quality.
+    # Reporting that as FAIL blames the run for a missing diagnostic, so say
+    # what is true: the test could not be performed. Computing it properly
+    # means integrating SoilTemp against each layer's heat capacity.
+    if ZERO_ON_LAND.get("DelSoilHeat"):
+        print("    INCONCLUSIVE -- DelSoilHeat is identically zero over land, so")
+        print("                    soil-heat storage is MISSING from the sum above.")
+        print("                    The missing term has no known sign, so the")
+        print("                    residual is not a closure error in either")
+        print("                    direction. Not gating exit status.")
+    else:
+        print("    " + ("PASS" if erel <= a.energy_tol else
+                        f"FAIL  (> {a.energy_tol:.1%})"))
+        ok &= erel <= a.energy_tol
 
-    print("\n" + ("BUDGETS PASS" if ok else "BUDGETS FAIL"))
+    # Never print a bare "BUDGETS PASS" when one of the two was not actually
+    # tested -- that is precisely the claim CLAUDE.md's first rule forbids.
+    verdict = "BUDGETS PASS" if ok else "BUDGETS FAIL"
+    if ZERO_ON_LAND.get("DelSoilHeat"):
+        verdict += "  (WATER only -- energy closure not tested)"
+    print("\n" + verdict)
     sys.exit(0 if ok else 1)
 
 if __name__ == "__main__":

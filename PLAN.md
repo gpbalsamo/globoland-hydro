@@ -196,14 +196,32 @@ the reasoning trail)**:
       enforced in `run/run_ecland.sh`: annual chunks -> daily output,
       hourly output -> monthly chunks. The limit is bracketed between 36 GB
       (works) and 424 GB (fails) but **not characterised**.
-- [~] Verify energy budget — **DONE 2026-09-24 but NOT RE-CONFIRMED** after
-      the water-budget retraction below. It uses the SAME all-land mask, so if
-      ice-sheet and lake points distort the water closure they may distort this
-      one too; nobody has decomposed the energy residual by surface type. The
-      measured numbers below stand as measured, and the 33-year sweep has it in
-      a narrow 0.53-0.96% band across the archive, which is at least consistent
-      with a real closure rather than a cancellation -- but "consistent with"
-      is not "checked". Treat as provisional until decomposed.
+- [ ] Verify energy budget — **NOT VERIFIED (2026-10-10). The test cannot be
+      performed as written, and the earlier DONE label is retracted.**
+      `DelSoilHeat` is **identically zero at every land point** in ecLand's
+      `o_efl.nc` -- measured on v4's 1989: `min = max = 0` across all 88,373
+      land points x 365 records, 0 nonzero of 32,256,145. The variable exists
+      in the file; the model never writes it. So `check_budgets.py`'s energy
+      sum omits the budget's main storage term and is an OPEN SUM, not a
+      closure, and its residual cannot be read as a closure error either way.
+      Measured on v4 with the committed script:
+
+        1988  3244 EJ  0.938%     2012  3502 EJ  1.009%
+        1989  3540 EJ  1.024%     2024  3202 EJ  0.928%
+        2000  3583 EJ  1.038%
+
+      Near-constant in ABSOLUTE terms (3,202-3,583 EJ) while net radiation
+      varies -- the signature of one systematic missing term, and it straddles
+      the arbitrary 1% default tolerance, so 3 of these 5 years "FAIL" for a
+      reason unrelated to the run. `check_budgets.py` now detects the zero term
+      and reports the energy result as INCONCLUSIVE instead of FAIL, and does
+      not let it gate exit status; the water closure still does.
+      **The earlier "33-year sweep, narrow 0.53-0.96% band" claim is
+      withdrawn**: the committed script's real range on v4 includes 1.038%, the
+      sweep covered 33 years of a different (pre-v2) archive, and the entry
+      itself was already flagged NOT RE-CONFIRMED. Closing this properly means
+      integrating `SoilTemp` (present in `o_gg.nc`) against each layer's heat
+      capacity -- NOT STARTED.
       Original entry: `validation/check_budgets.py`,
       area-weighted global land totals. On the validated 1988 year:
       residual **+2347 EJ = 0.680% of net radiation**, **PASS**.
@@ -598,8 +616,16 @@ decomposition + lake temperature):
         ice-capped points     -0.6 .. -0.0 Gt   (was +1673 Gt/yr)
         all other land        +0.0 Gt           (was  -214 Gt/yr)
         lake-bearing       -2470 .. -2324 Gt
-        water residual     1.977% .. 2.191%     (0 failures)
+        water residual     1.977% .. 2.191%     (0 failures)   [see 2026-10-10 note]
         TLWML max         304.95 .. 308.46 K
+
+**2026-10-10:** these numbers come from a script that is not in this
+repository and the committed `validation/check_budgets.py` disagrees with them
+by a factor of four -- see the note under "Campaign v4" below. That note
+applies to this table too: the v2 and v4 tables are identical to four
+significant figures in every row, which means one was copied from the other
+rather than independently measured. Which campaign the numbers were actually
+taken on is now unknown.
 
 Both leaks closed to within rounding in **every year**, not a sample. Lakes
 carry the entire remaining residual; there is no fourth unexplained term.
@@ -664,8 +690,20 @@ third unusable archive.
         ice-capped points     -0.6 .. -0.0 Gt
         all other land        +0.0 Gt
         lake-bearing       -2470 .. -2324 Gt
-        water residual     1.977% .. 2.191%
+        water residual     1.977% .. 2.191%                   [see note below]
         TLWML max         304.95 .. 308.46 K   (no 2000/2001 step)
+
+**The three per-surface lines and the ~2% water residual in the table above
+come from a script that is NOT in this repository** (`grep` finds the
+ice-capped/lake-bearing decomposition nowhere under `*.py`), and they
+**disagree with the committed checker by a factor of four on byte-identical
+data**. `validation/check_budgets.py` -- one commit, never modified -- gives
+0.057-0.491% of precipitation on v4 1988/1989/2000/2012/2024 (all PASS),
+never ~2%. The two are also self-inconsistent: if lakes carry -2,400 Gt and
+all other land ~0, the total cannot be the -568 Gt the checker measures for
+1989. Until the decomposition is reproducible, treat the committed checker's
+numbers as this repo's water closure and the per-surface split as
+**unverified** -- it may well be right, but nothing here can re-run it.
 
 Discharge against observed annual means: Mississippi 99%, Congo 106%,
 Amazon 77%. Yangtze (62%) and Yenisei (41%) remain low and want a proper
@@ -867,21 +905,31 @@ That is now the *only* large unexplained term, and it is exactly what
 excludes `pthout`, so any bifurcation flow reaching the ocean is uncounted and
 3,435 km3 is an upper bound on the remap loss, not a closure.
 
-**Caveat on the comparison, stated because it is a real confound.** The test
-run used the current default ecLand template, which has
-`TMNW_NDG_TIMESCL = 1.0E30` (FLake nudge OFF), while v4's 1989 was produced
-with the nudge ON. So this is not a byte-level reproduction of v4's 1989, and
-its budgets differ from the archive's: water residual **0.491%** against v4's
-1.977-2.191% band, energy residual **1.024%** against the archive's 0.53-0.96%
-band -- i.e. `check_budgets.py` **FAILS the energy tolerance** on this run.
-Both differences are attributable to the nudge, not to the CaMa restart: the
-nudge is documented at 0.005% in runoff but up to +24.7 K in lake temperature,
-and the ~2% water residual is itself lake evaporation. 0.005% of 40,646 km3 is
-~2 km3, three orders of magnitude below the +1,897 km3 signal, so the water
-comparison is unaffected. **New data point worth recording: the nudge-off
-configuration puts the energy residual above the 1% tolerance, and it
-IMPROVES the water residual from ~2% to 0.5%.** Neither was previously
-measured. The energy budget was already marked provisional-until-decomposed.
+**The test run IS a byte-level reproduction of v4's ecLand.** Verified by
+md5, not assumed:
+
+        4d073a0159a16f6e89f12bbf96277784  Y1989/restartout.nc    (v4 archive)
+        4d073a0159a16f6e89f12bbf96277784  CMFRST89/restartout.nc (staged test)
+        32a2044a081775c51fabdb8bdd1ff8a2  Y1988/restartout.nc
+        32a2044a081775c51fabdb8bdd1ff8a2  CMFRST88/restartout.nc
+
+and the rendered ecLand namelists are byte-identical (`diff` is empty). So the
++1,897 km3 recovery was measured against a land model that is bit-for-bit the
+archive's, and nothing on the ecLand side confounds it. This is a stronger
+result than was first written up here.
+
+**An earlier version of this section claimed the opposite and was wrong.** It
+said v4's 1989 ran the FLake nudge ON while the test ran it OFF, and attributed
+a budget difference to that. Every one of the 37 campaign-year namelists has
+`TMNW_NDG_TIMESCL = 1.0E30` -- nudge OFF; the only rendered namelist in this
+repo with the nudge on is `ABFLAKEON`, the deliberate A/B test. The retracted
+paragraph also invented a mechanism and a quantification for a difference that
+does not exist. `check_budgets.py` FAILED, and instead of chasing the
+measurement I reached for the most interesting switch I knew of and wrote it up
+as established -- the exact failure mode already recorded in this repo's own
+memory as "don't explain away your own check", for the third time. The
+disproof was one `diff` away and was not run.
+
 
 Other verification: `bash -n`, `compileall`, `--help`, the namelist `sed` tested
 against the real `input_cmf.nam` (patches `LRESTART`, leaves `LRESTCDF`
@@ -898,15 +946,16 @@ been silently inert and the staged check would have "passed" by cold-starting
 again. Fixed in 6e9c905. The wrapper's own comments already warned about
 exactly this for `ECLAND_EXE` and `NAMELIST_CMF_TEMPLATE`.
 
-### Required next step -- needs a decision
+### Required next step
 
 Both campaigns need re-running with the restart chained (~28 h each; the
 staged segments took 57 min each at 16 ranks). **Nothing has been submitted.**
-Open question to settle first, because it changes what the re-run produces:
-whether to keep `TMNW_NDG_TIMESCL = 1.0E30` (the current template, which
-improves the water residual to 0.5% but pushes energy to 1.024%) or match the
-archive's nudge-on setting for continuity. A re-run is the moment to decide,
-not something to inherit by default.
+
+**There is no configuration question to settle first.** An earlier version of
+this section asked whether to keep `TMNW_NDG_TIMESCL = 1.0E30` or "match the
+archive's nudge-on setting"; the archive's setting IS `1.0E30` and always was.
+Keep every template exactly as committed. The re-run then changes one thing
+only -- the CaMa restart -- which is what makes it interpretable.
 
 Note `run/configs/campaign/Y*.env` as committed carry no `CMF_RESTART_FROM`;
 they are rewritten by `submit_campaign.py` at submission, so they will pick it
