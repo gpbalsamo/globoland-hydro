@@ -357,10 +357,9 @@ the reasoning trail)**:
       nothing to put on the right-hand side for them. Closing it needs a FLake
       heat-content diagnostic, which does not exist.
 
-- [ ] **The snow column CAN be checked from output, to ~1.5 W m-2, via
-      `LWRTIL=.TRUE.` -- measured 2026-10-11, not yet wired into
-      `check_budgets.py`.** An earlier version of this entry said it could not
-      be done at all; that was wrong. `o_efl.nc` indeed lacks the snow tiles'
+- [x] **The snow column IS now checked from output, via `LWRTIL=.TRUE.` --
+      DONE and VERIFIED BOTH WAYS 2026-10-11.** An earlier version of this
+      entry said it could not be done at all; that was wrong. `o_efl.nc` indeed lacks the snow tiles'
       atmospheric flux -- of DDH slots 7-12 (snow SW down/up, LW down/up,
       sensible, latent) `upddiag.F90` reads only 7-10, into
       `D1STNSRD/SRU/TRD/TRU`, `wrtdcdf.F90` writes none of the four, and slots
@@ -387,10 +386,42 @@ the reasoning trail)**:
       7's `Qle`). The exact test remains ecLand's own `LESNCHECK`; one new
       output field carrying `ZHFLUX` (`srfsn_driver_mod.F90:298`) would make
       the offline check exact, and is the cheapest upstream fix.
+      It is wired into `check_budgets.py` as a **gated** check whenever
+      `o_til.nc` is present (`--no-snow-check` to report without gating,
+      `--snow-corr` / `--snow-slope-tol` to retune). It is judged by regression
+      and not by the global integral, because the two sides are a few EJ each
+      with heavy cancellation -- the integral's relative error is ~37% even
+      when the fields agree pointwise at corr 0.998.
+      **Verified both ways, which is the part that matters.** The tolerances
+      (corr >= 0.95, |slope-1| <= 0.10) are calibrated by perturbing one term
+      at a time on real output, not guessed:
+
+      | perturbation | slope | corr | verdict |
+      |---|---|---|---|
+      | none (correct run) | 0.97898 | 0.99841 | PASS |
+      | `DelColdCont` x 1.10 | 0.92188 | 0.99779 | PASS |
+      | `DelColdCont` x 1.20 | 0.86871 | 0.99587 | **FAIL** |
+      | `DelColdCont` x 1.50 | 0.73275 | 0.98600 | **FAIL** |
+      | `DelColdCont` x 0.50 | 1.28093 | 0.95345 | **FAIL** |
+      | `Qfsn` sign flipped | 0.68038 | 0.67774 | **FAIL** |
+      | `Qgsn` sign flipped | 0.68112 | 0.61709 | **FAIL** |
+      | `DelColdCont` sign flipped | -0.26891 | -0.24098 | **FAIL** |
+      | `DelColdCont` dropped | 1.13792 | 0.67562 | **FAIL** |
+      | `Qfsn` dropped | 0.99092 | 0.91596 | **FAIL** |
+
+      So it catches every sign error, any term silently dropped, and a scale
+      error from about **15%** up; a smaller scale error passes, which is the
+      honest limit of a check with a 1.5 W m-2 floor, and is why the coarse
+      1e4 W m-2 magnitude test stays as the first line of defence. The FAIL
+      path was exercised end to end on a copy of the real output with
+      `DelColdCont` multiplied by 1.5 (`slope 0.732746`, exit 1), and the
+      pre-fix run reports INCONCLUSIVE via the magnitude test before the gate
+      is reached (its statistic is `slope 0.000763`, `corr 0.680`).
       Noted in passing, not acted on: `netcdf_utils.F90:105` labels tile 5
       "shaded snow" and tile 7 "exposed snow", while `srfsn_driver_mod.F90:298`
       pairs `PEVAPSNW` ("evaporation from snow under forest") with tile 7 --
-      the two disagree about which snow tile is which.
+      the two disagree about which snow tile is which. The check sums both
+      tiles, so it does not depend on the answer.
       Original entry: `validation/check_budgets.py`,
       area-weighted global land totals. On the validated 1988 year:
       residual **+2347 EJ = 0.680% of net radiation**, **PASS**.

@@ -37,8 +37,19 @@ workflow step works because the code exists — see `CLAUDE.md`.
   1.49 W m-2 -- but not exactly, because `o_til.nc`'s per-tile **radiation** is
   an approximation: over all ten tiles it misses grid `SWnet` by 1.29 and
   `LWnet` by 2.44 W m-2 on average, while per-tile `Qh`/`Qle` sum to 1e-7.
-  Do not use `o_til.nc` radiation for a closure. ecLand checks the snow column
-  exactly, internally and per grid point, instead: `LESNCHECK=.TRUE.` in `NAMPHYOFF` (template
+  Do not use `o_til.nc` radiation for a closure. It is nonetheless wired in as
+  a **gated** check whenever `o_til.nc` is present, judged by regression rather
+  than by the global integral (the two sides cancel, so the integral's relative
+  error is ~37% even at corr 0.998), with tolerances calibrated by perturbing
+  one term at a time: it catches every sign error, any dropped term, and a
+  scale error from ~15% up, and the FAIL path is exercised on a copy of real
+  output with `DelColdCont` x 1.5. `--no-snow-check` reports without gating.
+  Also measured, and worth knowing before reading any short run's verdict: the
+  **water check is window-dependent** -- 1.783% FAIL on 3 h, 0.924% PASS on
+  24 h, 0.057-0.491% over full years. Do not read a FAIL on a few-hour run as
+  a conservation problem.
+  ecLand checks the snow column exactly, internally and per grid point,
+  instead: `LESNCHECK=.TRUE.` in `NAMPHYOFF` (template
   `namelist_ecland_50R1_ctl_sncheck`), threshold 1e-6 W m-2, which went from
   **242,225 failing point-timesteps in 4 timesteps to 0 in 6** across the
   2026-10-11 ecLand snow fix. `DelColdCont - Qfsn` is the pack's full storage
