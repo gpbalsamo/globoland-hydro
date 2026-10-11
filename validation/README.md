@@ -23,11 +23,18 @@ workflow step works because the code exists — see `CLAUDE.md`.
   precipitation, all PASS — and **not** the 1.977–2.191% that PLAN.md's sweep
   tables report, which were computed ad hoc and never saved, and so cannot be
   reproduced by anyone.
-  Energy is reported INCONCLUSIVE, not FAIL, because ecLand writes
-  `DelSoilHeat` as identically zero over land (`min = max = 0` across 88,373
-  land points × 365 records), so the sum is missing soil-heat storage and is
-  not a closure; the leftover is a near-constant 3,202–3,583 EJ that straddles
-  the 1% default tolerance. Only the water result gates exit status.
+  Energy: the **soil-column closure `Qg + (DelSoilHeat - Qf) = 0` is now a
+  real gated check** and passes at **2.9e-10** relative, after the ecLand fix
+  that wires up DDH index 15 (`upddiag.F90`); without it the same identity is
+  out by 37.9%, which is how the missing term was found. Runs made before that
+  fix report INCONCLUSIVE, since `DelSoilHeat` is identically zero in them.
+  The **all-surface energy residual is NOT a closure** and is no longer gated:
+  it double-counts the soil column through `Qg`, omits `Qgsn`/`Qfsn`, and
+  `DelColdCont` is unreliable (snow-melt term commented out of index 15 in
+  `srfsn_mod.F90:380`; it integrates to -376 EJ in one day). The script also
+  overrides the stale `J m-2` label on archived files -- those two terms are
+  really `W m-2`, so every budget computed before 2026-10-11 under-scaled them
+  by the output interval.
 - `check_dam_commissioning.py` — proves CaMa's `LDAMYBY` stages dams in at
   their `DamYear`. **VERIFIED** 2026-10-08 against the v4/dams archive pair
   (PASS, exit 0). Its docstring records three obvious tests that do *not* work;

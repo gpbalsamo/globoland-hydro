@@ -46,6 +46,8 @@ def interval_seconds(ds):
 
 # name -> True when the term was present but summed to exactly zero over land
 ZERO_ON_LAND = {}
+# terms whose declared units predate the ecland label fix
+STALE_UNITS = set()
 
 def acc(ds, name, area, dt, land):
     """Area-weighted global total, summed over time.
@@ -63,6 +65,17 @@ def acc(ds, name, area, dt, land):
     v = ds[name]
     u = getattr(v, "units", "").replace(" ", "").lower()
     is_rate = u.endswith("s-1") or u in ("wm-2",)
+    # DelSoilHeat/DelColdCont were declared 'J m-2' but are written through the
+    # SAME path as Qf/Qg -- accumulator bucket IA times ZWA, which under
+    # LACCUMW is 1/(NFRPOS*TSTEP) -- so they are MEAN RATES in W m-2. Measured
+    # 2026-10-11: regressing DelSoilHeat on the o_gg.nc soil temperature change
+    # gives slope*3600 = 2.1935E6 = RRCSOIL exactly, corr 1.000000, and the
+    # soil budget then closes to 3E-10. The label is fixed in ecland
+    # (netcdf_utils.F90), but every file written before that carries the old
+    # one, so treat these two as rates whatever they claim.
+    if name in ("DelSoilHeat", "DelColdCont") and not is_rate:
+        is_rate = True
+        STALE_UNITS.add(name)
     scale = dt if is_rate else 1.0
     tot = np.zeros(area.shape)
     for i in range(v.shape[0]):                      # stream: annual files are large
@@ -81,6 +94,10 @@ def main():
     p.add_argument("--output-dir", required=True)
     p.add_argument("--water-tol", type=float, default=0.01,
                    help="max |residual| / |precip input| (default 1%%)")
+    p.add_argument("--soil-tol", type=float, default=1e-6,
+                   help="relative tolerance on the soil-column energy closure "
+                        "Qg + (DelSoilHeat - Qf); it closes to ~3e-10 when the "
+                        "ecland DDH index-15 fix is present")
     p.add_argument("--energy-tol", type=float, default=0.01,
                    help="max |residual| / |SWnet+LWnet| (default 1%%)")
     a = p.parse_args()
@@ -133,44 +150,66 @@ def main():
         et[n] = acc(efl, n, area, dte, land)
         if et[n] is not None:
             print(f"    {n:14s} {et[n]/1e18:16.4f} EJ")
-    # ecLand writes fluxes DOWNWARD-POSITIVE (restart attribute
-    # SurfSgn_convention = "Mathematical"), so the turbulent and ground
-    # fluxes are already negative where they carry energy away. They are
-    # ADDED, not subtracted; subtracting them doubles the imbalance, which is
-    # the energy-side twin of the Qs/Qsb sign trap in the water budget.
+    # SOIL COLUMN CLOSURE -- the one energy identity that actually closes.
+    # From the model's own definitions (srft_mod.F90:409,411):
+    #     DelSoilHeat =  RRCSOIL*RDAT*dT/dt                 (DDH index 15)
+    #     Qf          = -(PCTSA-RRCSOIL)*RDAT*dT/dt         (DDH index 12)
+    # so DelSoilHeat - Qf = PCTSA*RDAT*dT/dt, the FULL soil heat content
+    # change, and it must balance the ground heat flux Qg. Measured on a
+    # 1994-01-01 day: Qg = 35.428263 EJ, DelSoilHeat - Qf = -35.428263 EJ,
+    # sum 2.9E-10 relative. With DelSoilHeat left at zero the same identity is
+    # out by 37.9%, which is how the missing term was found.
+    soil_stor = (et.get("DelSoilHeat") or 0) - (et.get("Qf") or 0)
+    sres = (et.get("Qg") or 0) + soil_stor
+    sref = max(abs(et.get("Qg") or 0), abs(soil_stor))
+    srel = abs(sres) / sref if sref else float("nan")
+    print()
+    print(f"    {'Qg':14s} {(et.get('Qg') or 0)/1e18:16.4f} EJ")
+    print(f"    {'DelSoilHeat-Qf':14s} {soil_stor/1e18:16.4f} EJ   (full soil storage change)")
+    print(f"    {'SOIL RESIDUAL':14s} {sres/1e18:16.4f} EJ   ({srel:.3e} relative)")
+    if ZERO_ON_LAND.get("DelSoilHeat"):
+        print("    INCONCLUSIVE -- DelSoilHeat is identically zero over land, so")
+        print("                    this run predates the ecland fix that wires up")
+        print("                    DDH index 15 (upddiag.F90). Not gating exit.")
+    else:
+        print("    " + ("PASS" if srel <= a.soil_tol else
+                        f"FAIL  (> {a.soil_tol:.1e})"))
+        ok &= srel <= a.soil_tol
+
+    # ALL-SURFACE energy: NOT a closure, and not gated. Three known defects,
+    # none of them caused by the run:
+    #  1. it DOUBLE-COUNTS the soil column. Qg already equals -(DelSoilHeat-Qf)
+    #     to 3E-10, so adding Qg AND +Qf-DelSoilHeat counts that storage twice.
+    #  2. it omits Qgsn and Qfsn, the snow basal and snow fusion fluxes, which
+    #     o_efl.nc carries.
+    #  3. DelColdCont is itself suspect: srfsn_mod.F90:380-382 shows the snow
+    #     melt term (-PDHTSS(JL,1,14)) commented OUT of DDH index 15, and the
+    #     term integrates to -376 EJ over a single day, which no snowpack can
+    #     do. The snow analogue of the soil identity does not close.
+    # Reported for continuity with earlier numbers, nothing more.
     eres = (et.get("SWnet") or 0) + (et.get("LWnet") or 0) \
         + sum(et[n] or 0 for n in ("Qle", "Qh", "Qg", "Qf")) \
         - sum(et[n] or 0 for n in ("DelSoilHeat", "DelColdCont"))
     eref = abs((et.get("SWnet") or 0) + (et.get("LWnet") or 0))
     erel = abs(eres) / eref if eref else float("nan")
-    print(f"    {'RESIDUAL':14s} {eres/1e18:16.4f} EJ   ({erel:.3%} of net radiation)")
-    # ecLand writes DelSoilHeat as identically zero at every land point
-    # (verified 2026-10-10 on v4's 1989: min = max = 0 over all 88,373 land
-    # points x 365 records). Soil heat content demonstrably does change -- the
-    # model carries SoilTemp in o_gg.nc -- so this is an undiagnosed term, and
-    # the sum above is missing the energy budget's main storage term. The
-    # leftover is then a systematic +3,200..3,600 EJ (0.93-1.04% of net
-    # radiation across v4 1988/1989/2000/2012/2024), i.e. straddling any 1%
-    # tolerance for a reason that has nothing to do with closure quality.
-    # Reporting that as FAIL blames the run for a missing diagnostic, so say
-    # what is true: the test could not be performed. Computing it properly
-    # means integrating SoilTemp against each layer's heat capacity.
-    if ZERO_ON_LAND.get("DelSoilHeat"):
-        print("    INCONCLUSIVE -- DelSoilHeat is identically zero over land, so")
-        print("                    soil-heat storage is MISSING from the sum above.")
-        print("                    The missing term has no known sign, so the")
-        print("                    residual is not a closure error in either")
-        print("                    direction. Not gating exit status.")
-    else:
-        print("    " + ("PASS" if erel <= a.energy_tol else
-                        f"FAIL  (> {a.energy_tol:.1%})"))
-        ok &= erel <= a.energy_tol
+    print()
+    print(f"    {'ALL-SURFACE':14s} {eres/1e18:16.4f} EJ   ({erel:.3%} of net radiation)")
+    print("    NOT A CLOSURE -- double-counts the soil column via Qg, omits")
+    print("                     Qgsn/Qfsn, and DelColdCont is unreliable.")
+    print("                     See the comment in this script. Not gating exit.")
+    if STALE_UNITS:
+        print()
+        print("    NOTE: " + "/".join(sorted(STALE_UNITS)) + " declared 'J m-2' in this file but")
+        print("          treated as W m-2 -- see the comment in acc(). Rerun with an")
+        print("          ecland built after the netcdf_utils.F90 label fix to remove this.")
 
     # Never print a bare "BUDGETS PASS" when one of the two was not actually
     # tested -- that is precisely the claim CLAUDE.md's first rule forbids.
     verdict = "BUDGETS PASS" if ok else "BUDGETS FAIL"
     if ZERO_ON_LAND.get("DelSoilHeat"):
-        verdict += "  (WATER only -- energy closure not tested)"
+        verdict += "  (WATER only -- soil energy closure not testable)"
+    else:
+        verdict += "  (water + soil energy)"
     print("\n" + verdict)
     sys.exit(0 if ok else 1)
 

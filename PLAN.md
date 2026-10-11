@@ -243,8 +243,61 @@ the reasoning trail)**:
       `PDDHS%PDHTSS(:,1,15)`. Soil heat is the one gap. Closing it means the
       heat analogue of line 229 -- soil temperature tendency dotted with each
       layer's volumetric heat capacity and depth -- which is an **ecLand source
-      change and an upstream PR candidate**, not something this repo can fix in
-      post-processing. NOT STARTED, needs approval.
+      change**, done below.
+
+- [x] **Wire up DelSoilHeat in ecLand -- DONE and VERIFIED 2026-10-11.**
+      One line in `src/surf/offline/driver/upddiag.F90` on ecland `develop`:
+
+        -D1SDSH(KIDIA:KFDIA,IBL) = 0._JPRB ! DelSoilHeat of skin layer (0)
+        +D1SDSH(KIDIA:KFDIA,IBL) = SUM(PDDHS%PDHTTS(KIDIA:KFDIA,1:KLEVS,15),DIM=2)
+
+      The quantity was already computed per layer (`srft_mod.F90:411`) and slot
+      15 was reserved for it (`sucdh1s.F90:89` names its last flux "soil heat
+      content change"). Verified four ways, built into
+      `/perm/pad/ecland/build-dsh` so `build/` stayed untouched under the
+      pending REPREX/AMAZEX segments:
+
+      1. **Diagnostic only.** `restartout.nc` and `o_gg.nc` md5-identical
+         between old and new binaries on the same 1-day run; of every variable
+         in `o_efl.nc`, `DelSoilHeat` alone changed (0 -> populated).
+      2. **Correct to machine precision.** Regressed on the soil temperature
+         change from `o_gg.nc`: correlation **1.000000**, slope*3600 =
+         **2.19349E6**, matching `RRCSOIL` (`sussoil_mod.F90:487`) exactly.
+      3. **The soil energy budget now closes.** `Qg + (DelSoilHeat - Qf) = 0`
+         to **2.9E-10** relative (35.428263 vs -35.428263 EJ), where
+         `DelSoilHeat - Qf` is the full `PCTSA*RDAT*dT` storage change. With the
+         term at zero the same identity is out by **37.9%** -- that is how the
+         missing term was found.
+      4. **No ctest reference affected.** The only reference values are
+         `AvgSurfT`/`SoilMois`/`SoilTemp` -- all state, all unchanged.
+
+      Caveat recorded in the source: slot 15 differences `ZTSA` (the tridiagonal
+      solution) against `PTSAM1M`, which is the real temperature change only
+      because `RSIMP = 1` (`sussoil_mod.F90:493`). A different `RSIMP` would
+      silently break it, and `PTSDFL` (`srft_mod.F90:338`) with it.
+
+- [x] **Second ecLand bug, found and fixed: the unit labels were wrong.**
+      `DelSoilHeat` and `DelColdCont` declared `J m-2`, but both are written
+      through the same path as `Qf`/`Qg` -- accumulator bucket `IA` times
+      `ZWA = 1/(NFRPOS*TSTEP)` (`wrtdcdf.F90:613,628`) -- so they are MEAN RATES
+      in `W m-2`. Corrected in `netcdf_utils.F90`. Consequence: every budget
+      this repo computed before today **under-scaled both storage terms by the
+      output interval**, because `check_budgets.py` keys off units. It now
+      overrides the stale label on archived files and says so.
+
+- [ ] **The all-surface energy residual is NOT a closure -- NOT VERIFIED.**
+      The ~1% figure never was one, and the old 0.53-0.96% "band" was three
+      defects partly cancelling. Measured, not argued: *(a)* it
+      **double-counts the soil column** -- `Qg` already equals
+      `-(DelSoilHeat - Qf)` to 3E-10, so adding `Qg` *and* `+Qf - DelSoilHeat`
+      counts that storage twice; *(b)* it omits `Qgsn` and `Qfsn`, which
+      `o_efl.nc` carries; *(c)* `DelColdCont` is unreliable --
+      `srfsn_mod.F90:380-382` has the snow-melt term `-PDHTSS(JL,1,14)`
+      commented OUT of index 15, and it integrates to **-376 EJ in one day**,
+      which no snowpack can do; the snow analogue of the soil identity does not
+      close. `check_budgets.py` now gates on the soil closure and reports the
+      all-surface number explicitly as not a closure. Fixing the snow side is
+      the remaining work and is a separate ecLand change.
       Original entry: `validation/check_budgets.py`,
       area-weighted global land totals. On the validated 1988 year:
       residual **+2347 EJ = 0.680% of net radiation**, **PASS**.
