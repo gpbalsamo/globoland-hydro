@@ -219,9 +219,32 @@ the reasoning trail)**:
       **The earlier "33-year sweep, narrow 0.53-0.96% band" claim is
       withdrawn**: the committed script's real range on v4 includes 1.038%, the
       sweep covered 33 years of a different (pre-v2) archive, and the entry
-      itself was already flagged NOT RE-CONFIRMED. Closing this properly means
-      integrating `SoilTemp` (present in `o_gg.nc`) against each layer's heat
-      capacity -- NOT STARTED.
+      itself was already flagged NOT RE-CONFIRMED. **ROOT CAUSE, in ecLand's source.** The diagnostic is not
+      implemented. The whole tree contains exactly ONE assignment to it,
+      `src/surf/offline/driver/upddiag.F90:410`:
+
+        D1SDSH(KIDIA:KFDIA,IBL) = 0._JPRB ! DelSoilHeat of skin layer (0)
+
+      and `D1SDSH` points at level index 1 only
+      (`sugdi1s.F90:479`, `GDIAUX1S(:,M1SDSH,1,:)`). The all-level array
+      `D1SDSH2` -- which is what `wrtdcdf.F90:613` actually writes to netCDF --
+      **is never assigned anywhere**, so the file carries the zero-initialised
+      buffer. Meanwhile the variable is fully registered for output with a long
+      name and units `J m-2` (`netcdf_utils.F90:369`), which is what makes it a
+      silent zero rather than an absent field.
+
+      The water-side twin IS computed, one routine away, which shows the
+      intended form (`upddiag.F90:229`):
+
+        D1SWDS(JL,IBL)=PTSPHY*RHOH2O*DOT_PRODUCT(PSURF%PWSAE1(JL,:),RDAW(:))
+
+      i.e. the layer-depth-weighted integral of the soil tendency. `DelColdCont`
+      (snow heat content) is also properly diagnosed, from
+      `PDDHS%PDHTSS(:,1,15)`. Soil heat is the one gap. Closing it means the
+      heat analogue of line 229 -- soil temperature tendency dotted with each
+      layer's volumetric heat capacity and depth -- which is an **ecLand source
+      change and an upstream PR candidate**, not something this repo can fix in
+      post-processing. NOT STARTED, needs approval.
       Original entry: `validation/check_budgets.py`,
       area-weighted global land totals. On the validated 1988 year:
       residual **+2347 EJ = 0.680% of net radiation**, **PASS**.
@@ -620,8 +643,9 @@ decomposition + lake temperature):
         TLWML max         304.95 .. 308.46 K
 
 **2026-10-10:** these numbers come from a script that is not in this
-repository and the committed `validation/check_budgets.py` disagrees with them
-by a factor of four -- see the note under "Campaign v4" below. That note
+repository -- they were never saved at all -- and the committed
+`validation/check_budgets.py` disagrees with them by a factor of four. See the
+note under "Campaign v4" below. That note
 applies to this table too: the v2 and v4 tables are identical to four
 significant figures in every row, which means one was copied from the other
 rather than independently measured. Which campaign the numbers were actually
@@ -694,10 +718,14 @@ third unusable archive.
         TLWML max         304.95 .. 308.46 K   (no 2000/2001 step)
 
 **The three per-surface lines and the ~2% water residual in the table above
-come from a script that is NOT in this repository** (`grep` finds the
-ice-capped/lake-bearing decomposition nowhere under `*.py`), and they
-**disagree with the committed checker by a factor of four on byte-identical
-data**. `validation/check_budgets.py` -- one commit, never modified -- gives
+were computed ad hoc and never saved, so they cannot be reproduced.** No script
+producing that decomposition exists anywhere -- not in the working tree, not in
+any commit reachable from any branch, and no `*.py` was ever deleted from this
+repo (`git log --diff-filter=D -- "*.py"` is empty). They were almost certainly
+one-off inline Python in a shell command. An earlier version of this note said
+they "come from a script that is NOT in this repository", which wrongly implied
+the script exists somewhere else; it does not. They
+**disagree with the committed checker by a factor of four**. `validation/check_budgets.py` -- one commit, never modified -- gives
 0.057-0.491% of precipitation on v4 1988/1989/2000/2012/2024 (all PASS),
 never ~2%. The two are also self-inconsistent: if lakes carry -2,400 Gt and
 all other land ~0, the total cannot be the -568 Gt the checker measures for

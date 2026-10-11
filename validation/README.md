@@ -21,7 +21,8 @@ workflow step works because the code exists — see `CLAUDE.md`.
   never actually run over those 37 years with its result recorded. Measured
   2026-10-10 on v4 1988/1989/2000/2012/2024: water 0.057–0.491% of
   precipitation, all PASS — and **not** the 1.977–2.191% that PLAN.md's sweep
-  tables report, which come from a script that is not in this repository.
+  tables report, which were computed ad hoc and never saved, and so cannot be
+  reproduced by anyone.
   Energy is reported INCONCLUSIVE, not FAIL, because ecLand writes
   `DelSoilHeat` as identically zero over land (`min = max = 0` across 88,373
   land points × 365 records), so the sum is missing soil-heat storage and is
