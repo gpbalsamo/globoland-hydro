@@ -354,12 +354,43 @@ the reasoning trail)**:
       this one **1.262%**. It is still not gated, and the reason is now a
       *named* one rather than a defect: **FLake, sea ice, interception and the
       skin layer have no storage diagnostic in `o_efl.nc`**, so there is
-      nothing to put on the right-hand side for them. Closing it needs
-      `wrtdcdf.F90` to write the snow tiles' own atmospheric fluxes (DDH slots
-      7-12, already computed into `GDIAUX` by `upddiag.F90` and thrown away)
-      and a FLake heat-content diagnostic. Until then the two per-reservoir
-      identities are what this repo gates on, and ecLand's own `LESNCHECK` is
-      what covers the snow column.
+      nothing to put on the right-hand side for them. Closing it needs a FLake
+      heat-content diagnostic, which does not exist.
+
+- [ ] **The snow column CAN be checked from output, to ~1.5 W m-2, via
+      `LWRTIL=.TRUE.` -- measured 2026-10-11, not yet wired into
+      `check_budgets.py`.** An earlier version of this entry said it could not
+      be done at all; that was wrong. `o_efl.nc` indeed lacks the snow tiles'
+      atmospheric flux -- of DDH slots 7-12 (snow SW down/up, LW down/up,
+      sensible, latent) `upddiag.F90` reads only 7-10, into
+      `D1STNSRD/SRU/TRD/TRU`, `wrtdcdf.F90` writes none of the four, and slots
+      11-12 have no `D1S` variable at all. But `LWRTIL=.TRUE.` writes
+      `o_til.nc` with per-tile, already-fraction-weighted `SWnet`, `LWnet`,
+      `Qh`, `Qle` and `tifr`, and summing tiles 5 and 7 gives the snow tiles'
+      flux. Measured on a 3 h run (template
+      `namelist_ecland_50R1_ctl_sntile`), against
+      `Qgsn + (DelColdCont - Qfsn)`: slope **0.979**, corr **0.998**, mean
+      |residual| **1.49 W m-2** on 171,585 snow samples where the flux itself
+      averages 13.7 W m-2.
+      It is not exact, and the reason is worth knowing before anyone trusts
+      `o_til.nc` for any budget: **ecLand's per-tile radiation diagnostics are
+      approximations, while its per-tile turbulent fluxes are exact.** Summed
+      over all ten tiles, `o_til.nc`'s `Qh` and `Qle` reproduce `o_efl.nc`'s
+      grid-box values to **1e-7 W m-2**, but `SWnet` is out by **1.29** and
+      `LWnet` by **2.44 W m-2** on average (max 40 and 31). `PDHTLS(:,JTILE,6)`
+      is built as `PFRTI*PSLRFL/PEMIS`, the grid-box net LW redistributed by
+      fraction, not the per-tile `PSLRFLTI` the snow solver actually uses
+      (`surfexcdriver_ctl_mod.F90:1171`). Consistent with that, the
+      reconstruction residual is **0.80 W m-2 at night and 1.96 by day**, and
+      correlates with the radiation terms (-0.61 with `SWnet_sn`, +0.62 with
+      `LWnet_sn`) and not with the forest-snow latent split (+0.04 with tile
+      7's `Qle`). The exact test remains ecLand's own `LESNCHECK`; one new
+      output field carrying `ZHFLUX` (`srfsn_driver_mod.F90:298`) would make
+      the offline check exact, and is the cheapest upstream fix.
+      Noted in passing, not acted on: `netcdf_utils.F90:105` labels tile 5
+      "shaded snow" and tile 7 "exposed snow", while `srfsn_driver_mod.F90:298`
+      pairs `PEVAPSNW` ("evaporation from snow under forest") with tile 7 --
+      the two disagree about which snow tile is which.
       Original entry: `validation/check_budgets.py`,
       area-weighted global land totals. On the validated 1988 year:
       residual **+2347 EJ = 0.680% of net radiation**, **PASS**.

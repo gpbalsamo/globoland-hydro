@@ -19,9 +19,16 @@ ENERGY (fluxes are downward-positive, so the turbulent terms are ADDED).
 Two per-reservoir identities, each a real closure the model satisfies:
 
     soil:  Qg   + (DelSoilHeat - Qf)    ~= 0      gated, closes to 3e-10
-    snow:  the same shape, but its driving term (the snow tiles' own net
-           atmospheric flux) is not written to o_efl.nc, so it cannot be
-           reconstructed here. ecLand checks it internally instead --
+    snow:  Qgsn + (DelColdCont - Qfsn) = the snow tiles' net atmospheric
+           flux -- which o_efl.nc does not carry, so it is not checked here.
+           It CAN be reconstructed from o_til.nc (LWRTIL=.TRUE.): per-tile
+           SWnet+LWnet+Qh+Qle on tiles 5 and 7, already fraction-weighted.
+           That agrees to mean 1.5 W m-2, slope 0.979, corr 0.998 -- good
+           enough to catch a broken term, not a closure, because ecLand's
+           per-tile RADIATION diagnostics are approximations: summed over all
+           ten tiles they miss the grid-box SWnet by 1.29 and LWnet by 2.44
+           W m-2 on average, while per-tile Qh and Qle sum exactly (1e-7).
+           For an exact test use ecLand's own per-grid-point check instead:
            LESNCHECK=.TRUE. in NAMPHYOFF, srfsn_driver_mod.F90.
 
 The whole-surface sum is reported but NOT gated, because land heat storage
@@ -200,12 +207,15 @@ def main():
     # SNOW COLUMN. The same two-part storage as the soil -- DelColdCont is the
     # sensible part (DDH index 15) and Qfsn the phase-change part (index 14),
     # so DelColdCont - Qfsn is the whole pack's storage change. Reported, not
-    # gated: the driving term is the snow tiles' own net atmospheric flux,
-    # which upddiag.F90 computes into GDIAUX but wrtdcdf.F90 never writes, so
-    # there is nothing here to balance it against. ecLand checks this one
-    # internally and per grid point instead (LESNCHECK=.TRUE., threshold
-    # 1e-6 W m-2): measured 2026-10-11, 242225 failing point-timesteps in 4
-    # timesteps before the srfsn_webal_mod.F90/upddiag.F90 fix, 0 after.
+    # gated: the driving term is the snow tiles' own net atmospheric flux, and
+    # o_efl.nc does not carry it -- of DDH slots 7-12 (snow SW/LW down and up,
+    # sensible, latent) upddiag.F90 reads only 7-10, into D1STNSRD/SRU/TRD/TRU,
+    # and wrtdcdf.F90 writes none of them; slots 11 and 12 are never even read.
+    # Per-tile output (LWRTIL=.TRUE. -> o_til.nc) is the way round it, to
+    # ~1.5 W m-2 -- see the module docstring. The exact test is ecLand's own
+    # per-grid-point check (LESNCHECK=.TRUE., threshold 1e-6 W m-2): measured
+    # 2026-10-11, 242225 failing point-timesteps in 4 timesteps before the
+    # srfsn_webal_mod.F90/upddiag.F90 fix, 0 after.
     snow_stor = (et.get("DelColdCont") or 0) - (et.get("Qfsn") or 0)
     stale_snow = MAXABS.get("DelColdCont", 0.0) > FLUX_BOUND
     print()

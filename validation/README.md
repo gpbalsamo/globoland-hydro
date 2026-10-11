@@ -29,10 +29,16 @@ workflow step works because the code exists — see `CLAUDE.md`.
   out by 37.9%, which is how the missing term was found. Runs made before that
   fix report INCONCLUSIVE, since `DelSoilHeat` is identically zero in them.
   The **snow column is reported but not gated here**, because its driving term
-  -- the snow tiles' own net atmospheric flux -- is computed by `upddiag.F90`
-  and then never written by `wrtdcdf.F90`, so there is nothing in `o_efl.nc`
-  to balance it against. ecLand checks it internally and per grid point
-  instead: `LESNCHECK=.TRUE.` in `NAMPHYOFF` (template
+  -- the snow tiles' own net atmospheric flux -- is not in `o_efl.nc`: of DDH
+  slots 7-12, `upddiag.F90` reads only 7-10 and `wrtdcdf.F90` writes none of
+  them. It *can* be reconstructed from `o_til.nc` (`LWRTIL=.TRUE.`, template
+  `namelist_ecland_50R1_ctl_sntile`) by summing the per-tile `SWnet`, `LWnet`,
+  `Qh`, `Qle` over tiles 5 and 7 -- slope 0.979, corr 0.998, mean |residual|
+  1.49 W m-2 -- but not exactly, because `o_til.nc`'s per-tile **radiation** is
+  an approximation: over all ten tiles it misses grid `SWnet` by 1.29 and
+  `LWnet` by 2.44 W m-2 on average, while per-tile `Qh`/`Qle` sum to 1e-7.
+  Do not use `o_til.nc` radiation for a closure. ecLand checks the snow column
+  exactly, internally and per grid point, instead: `LESNCHECK=.TRUE.` in `NAMPHYOFF` (template
   `namelist_ecland_50R1_ctl_sncheck`), threshold 1e-6 W m-2, which went from
   **242,225 failing point-timesteps in 4 timesteps to 0 in 6** across the
   2026-10-11 ecLand snow fix. `DelColdCont - Qfsn` is the pack's full storage
