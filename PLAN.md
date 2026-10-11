@@ -239,8 +239,9 @@ the reasoning trail)**:
         D1SWDS(JL,IBL)=PTSPHY*RHOH2O*DOT_PRODUCT(PSURF%PWSAE1(JL,:),RDAW(:))
 
       i.e. the layer-depth-weighted integral of the soil tendency. `DelColdCont`
-      (snow heat content) is also properly diagnosed, from
-      `PDDHS%PDHTSS(:,1,15)`. Soil heat is the one gap. Closing it means the
+      (snow heat content) at least *reaches* the output, from
+      `PDDHS%PDHTSS(:,1,15)` -- but it is wrong too, for different reasons; see
+      the third ecLand bug below. Closing the soil gap means the
       heat analogue of line 229 -- soil temperature tendency dotted with each
       layer's volumetric heat capacity and depth -- which is an **ecLand source
       change**, done below.
@@ -285,19 +286,80 @@ the reasoning trail)**:
       output interval**, because `check_budgets.py` keys off units. It now
       overrides the stale label on archived files and says so.
 
-- [ ] **The all-surface energy residual is NOT a closure -- NOT VERIFIED.**
+- [x] **Third ecLand bug, found and fixed: the snow energy diagnostics --
+      DONE and VERIFIED 2026-10-11.** `DelColdCont` was wrong by a factor
+      `PTMST` *and* was the top snow layer of five, and `Qfsn` had the opposite
+      sign under `LESNML` from the single-layer schemes. The earlier note here
+      blamed `srfsn_mod.F90:380`, where the melt term is commented out of index
+      15 -- that is real but **not the live path**: this configuration sets
+      `LESNML=.TRUE.`, `NCSNEC=5`, so `surftstp_ctl_mod.F90:647` dispatches to
+      `SRFSN_DRIVER` -> `SRFSN_WEBAL`. The live defects were
+
+      ```fortran
+      ! srfsn_webal_mod.F90:417, ZSNHC is already a capacity DIVIDED by PTMST
+      ! (ZTMST=1/PTMST), so this returned C*dT in J m-2, not a flux
+      -  PDHTSS(JL,JK,15)=ZSNHC(JL,JK)*PTMST*(PTSN(JL,JK)-PTSNM1M(JL,JK))
+      +  PDHTSS(JL,JK,15)=ZSNHC(JL,JK)*(PTSN(JL,JK)-PTSNM1M(JL,JK))
+      ! srfsn_webal_mod.F90:415, sign now matches -RLMLT*PMSN elsewhere
+      +  PDHTSS(JL,JK,14)=-(PMELTSN(JL,JK)+PFREZSN(JL,JK))
+      ! upddiag.F90:276,453 -- the column, not layer 1
+      +  D1STNM  = SUM(PDDHS%PDHTSS(KIDIA:KFDIA,1:KLEVSN,14),DIM=2)
+      +  D1STNDH = SUM(PDDHS%PDHTSS(KIDIA:KFDIA,1:KLEVSN,15),DIM=2)
+      ```
+
+      plus `PDHSSS(JL,JK,5)` rewritten from `PMELTSN`/`PFREZSN` directly so
+      the sign fix cannot move `Qsm`, `srfsn_driver_mod.F90`'s own check made a
+      column budget, and `PDHTSS(JL,2:,14:15)=0` in the single-layer schemes,
+      which never fill those layers although `KLEVSN=NCSNEC` regardless of
+      `LESNML`. Verified four ways:
+
+      1. **Diagnostic only.** `restartout.nc`, `o_gg.nc` and `o_wat.nc` are all
+         three md5-identical to the pre-fix run, and of every variable in
+         `o_efl.nc` only `DelColdCont` and `Qfsn` changed. `DelColdCont`'s peak
+         went from **2.24E5** to **220.5 W m-2** -- the old value was not a flux.
+      2. **ecLand's own per-grid-point check, which is the authoritative one.**
+         `LESNCHECK=.TRUE.` (`NAMPHYOFF`) makes `srfsn_driver_mod.F90` test the
+         snow column's energy balance at every snow point and timestep against
+         1E-6 W m-2: **242,225 failing point-timesteps in 4 timesteps before
+         the fix, 0 in 6 timesteps after.** Template
+         `namelist/templates/namelist_ecland_50R1_ctl_sncheck`.
+      3. **Exact against the state fields.** Regressed on
+         `sum_k cice*min(SWE_k, rsn_k*RDSNMAX)*dT_k`, built from `SWEML`,
+         `SnowTML` and `snowdensML` in `o_gg.nc`: slope **0.99295**, corr
+         **0.990054**. The cap matters -- `RDSNMAX = 1 m` leaves only **9.06%**
+         of global SWE thermally active, so an uncapped prediction is ~6x too
+         big (slope 0.169, corr 0.451) and is what made the first version of
+         this test disagree. Not 1.000000 like the soil, because the snow
+         layers are regridded every step, so layer *k* at *t+1h* is not the
+         same mass as at *t*.
+      4. **ecLand's own test suite passes.** `ctest -R "ecland_test|ecland_ifsbench"`
+         in `build-dsh`: **9 of 9 runnable tests Passed**, 311 s
+         (`insitu_US-Ha1_1991-1996`, `2D_EU-001`, five `ifsbench_v1_EU`
+         variants, and both `2d_gl_t21` global tests with and without CaMa;
+         `ifsbench_v1_EU_forward_dp` is disabled upstream). Expected, since
+         the references under `tests/` are `AvgSurfT`, `SoilMois` and
+         `SoilTemp` -- all state -- and all three output files are
+         bit-identical.
+
+- [ ] **The all-surface energy residual is NOT a closure -- NOT VERIFIED, and
+      cannot be one from `o_efl.nc` as it stands.**
       The ~1% figure never was one, and the old 0.53-0.96% "band" was three
       defects partly cancelling. Measured, not argued: *(a)* it
-      **double-counts the soil column** -- `Qg` already equals
+      **double-counted the soil column** -- `Qg` already equals
       `-(DelSoilHeat - Qf)` to 3E-10, so adding `Qg` *and* `+Qf - DelSoilHeat`
-      counts that storage twice; *(b)* it omits `Qgsn` and `Qfsn`, which
-      `o_efl.nc` carries; *(c)* `DelColdCont` is unreliable --
-      `srfsn_mod.F90:380-382` has the snow-melt term `-PDHTSS(JL,1,14)`
-      commented OUT of index 15, and it integrates to **-376 EJ in one day**,
-      which no snowpack can do; the snow analogue of the soil identity does not
-      close. `check_budgets.py` now gates on the soil closure and reports the
-      all-surface number explicitly as not a closure. Fixing the snow side is
-      the remaining work and is a separate ecLand change.
+      counts that storage twice; *(b)* it omitted `Qfsn`; *(c)* `DelColdCont`
+      was wrong, now fixed (entry above). `check_budgets.py` now writes the
+      equation as `SWnet+LWnet+Qle+Qh - (DelSoilHeat-Qf) - (DelColdCont-Qfsn)`:
+      on the 1994-01-01 day the old form gives **3.556%** of net radiation and
+      this one **1.262%**. It is still not gated, and the reason is now a
+      *named* one rather than a defect: **FLake, sea ice, interception and the
+      skin layer have no storage diagnostic in `o_efl.nc`**, so there is
+      nothing to put on the right-hand side for them. Closing it needs
+      `wrtdcdf.F90` to write the snow tiles' own atmospheric fluxes (DDH slots
+      7-12, already computed into `GDIAUX` by `upddiag.F90` and thrown away)
+      and a FLake heat-content diagnostic. Until then the two per-reservoir
+      identities are what this repo gates on, and ecLand's own `LESNCHECK` is
+      what covers the snow column.
       Original entry: `validation/check_budgets.py`,
       area-weighted global land totals. On the validated 1988 year:
       residual **+2347 EJ = 0.680% of net radiation**, **PASS**.

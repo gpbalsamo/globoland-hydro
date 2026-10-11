@@ -28,13 +28,28 @@ workflow step works because the code exists — see `CLAUDE.md`.
   that wires up DDH index 15 (`upddiag.F90`); without it the same identity is
   out by 37.9%, which is how the missing term was found. Runs made before that
   fix report INCONCLUSIVE, since `DelSoilHeat` is identically zero in them.
-  The **all-surface energy residual is NOT a closure** and is no longer gated:
-  it double-counts the soil column through `Qg`, omits `Qgsn`/`Qfsn`, and
-  `DelColdCont` is unreliable (snow-melt term commented out of index 15 in
-  `srfsn_mod.F90:380`; it integrates to -376 EJ in one day). The script also
-  overrides the stale `J m-2` label on archived files -- those two terms are
-  really `W m-2`, so every budget computed before 2026-10-11 under-scaled them
-  by the output interval.
+  The **snow column is reported but not gated here**, because its driving term
+  -- the snow tiles' own net atmospheric flux -- is computed by `upddiag.F90`
+  and then never written by `wrtdcdf.F90`, so there is nothing in `o_efl.nc`
+  to balance it against. ecLand checks it internally and per grid point
+  instead: `LESNCHECK=.TRUE.` in `NAMPHYOFF` (template
+  `namelist_ecland_50R1_ctl_sncheck`), threshold 1e-6 W m-2, which went from
+  **242,225 failing point-timesteps in 4 timesteps to 0 in 6** across the
+  2026-10-11 ecLand snow fix. `DelColdCont - Qfsn` is the pack's full storage
+  change, exactly as `DelSoilHeat - Qf` is the soil's, and the script prints a
+  **PRE-FIX OUTPUT** warning when `DelColdCont` exceeds 1e4 W m-2 -- the old
+  field peaked at 2.24e5, which is not a flux.
+  The **all-surface residual is NOT a closure** and is not gated, but it is now
+  written as the right equation,
+  `SWnet+LWnet+Qle+Qh - (DelSoilHeat-Qf) - (DelColdCont-Qfsn)`: 1.262% of net
+  radiation on the 1994-01-01 day, where the old form -- which double-counted
+  the soil column through `Qg` and omitted `Qfsn` -- gives 3.556%. What is left
+  is **FLake, sea ice, interception and the skin layer, none of which has a
+  storage diagnostic in `o_efl.nc`**; that is a named gap, not a defect in the
+  run, and closing it needs two new ecLand output diagnostics.
+  The script also overrides the stale `J m-2` label on archived files -- those
+  two terms are really `W m-2`, so every budget computed before 2026-10-11
+  under-scaled them by the output interval.
 - `check_dam_commissioning.py` — proves CaMa's `LDAMYBY` stages dams in at
   their `DamYear`. **VERIFIED** 2026-10-08 against the v4/dams archive pair
   (PASS, exit 0). Its docstring records three obvious tests that do *not* work;

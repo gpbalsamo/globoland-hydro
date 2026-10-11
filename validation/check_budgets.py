@@ -15,9 +15,20 @@ Qs and Qsb are ADDED, not subtracted. Subtracting them manufactures a
 spurious 2x residual -- that error is exactly what the runoff sign convention
 (total_runoff = -(Qs+Qsb)) exists to prevent.
 
-ENERGY (fluxes are downward-positive, so the turbulent terms are ADDED):
+ENERGY (fluxes are downward-positive, so the turbulent terms are ADDED).
+Two per-reservoir identities, each a real closure the model satisfies:
 
-    SWnet + LWnet + Qle + Qh + Qg + Qf - DelSoilHeat - DelColdCont ~= 0
+    soil:  Qg   + (DelSoilHeat - Qf)    ~= 0      gated, closes to 3e-10
+    snow:  the same shape, but its driving term (the snow tiles' own net
+           atmospheric flux) is not written to o_efl.nc, so it cannot be
+           reconstructed here. ecLand checks it internally instead --
+           LESNCHECK=.TRUE. in NAMPHYOFF, srfsn_driver_mod.F90.
+
+The whole-surface sum is reported but NOT gated, because land heat storage
+outside the soil and snow columns -- FLake, sea ice, interception, the skin
+layer -- has no output diagnostic to put on the right-hand side:
+
+    SWnet + LWnet + Qle + Qh - (DelSoilHeat - Qf) - (DelColdCont - Qfsn)
 
 Fluxes in o_wat are RATES (kg m-2 s-1) and in o_efl (W m-2), despite
 LACCUMW/LRESET suggesting accumulation -- they are multiplied by the output
@@ -48,6 +59,13 @@ def interval_seconds(ds):
 ZERO_ON_LAND = {}
 # terms whose declared units predate the ecland label fix
 STALE_UNITS = set()
+# name -> max |value| seen, for the physical-bound test on the storage terms
+MAXABS = {}
+# a surface energy flux this large is not a flux. Used only to recognise output
+# written before the ecland snow fix, where DelColdCont was C*dT in J m-2 read
+# as W m-2 and reached 2.2e5; the largest honest term in o_efl.nc is SWdown at
+# ~1.2e3. Nothing in between is plausible, so the bound needs no tuning.
+FLUX_BOUND = 1.0e4
 
 def acc(ds, name, area, dt, land):
     """Area-weighted global total, summed over time.
@@ -78,14 +96,17 @@ def acc(ds, name, area, dt, land):
         STALE_UNITS.add(name)
     scale = dt if is_rate else 1.0
     tot = np.zeros(area.shape)
+    mx = 0.0
     for i in range(v.shape[0]):                      # stream: annual files are large
         s = np.ma.filled(v[i], np.nan).astype("f8")
+        mx = max(mx, float(np.abs(np.nan_to_num(s)[land]).max()))
         np.add(tot, np.nan_to_num(s) * scale, out=tot, where=land)
     # A term present in the file but identically zero on land is a diagnostic
     # the model never wrote, NOT a term that happens to vanish -- and a sum
     # that silently omits a term is not a closure. Recorded here because it
     # costs nothing; acted on in the energy section below.
     ZERO_ON_LAND[name] = not bool(np.any(tot[land] != 0.0))
+    MAXABS[name] = mx                                # per-record, before scaling
     return float((tot * area)[land].sum())
 
 def main():
@@ -146,7 +167,7 @@ def main():
     dte = interval_seconds(efl) or dt
     et = {}
     for n in ("SWnet", "LWnet", "Qle", "Qh", "Qg", "Qf",
-              "DelSoilHeat", "DelColdCont"):
+              "DelSoilHeat", "DelColdCont", "Qgsn", "Qfsn"):
         et[n] = acc(efl, n, area, dte, land)
         if et[n] is not None:
             print(f"    {n:14s} {et[n]/1e18:16.4f} EJ")
@@ -176,27 +197,48 @@ def main():
                         f"FAIL  (> {a.soil_tol:.1e})"))
         ok &= srel <= a.soil_tol
 
-    # ALL-SURFACE energy: NOT a closure, and not gated. Three known defects,
-    # none of them caused by the run:
-    #  1. it DOUBLE-COUNTS the soil column. Qg already equals -(DelSoilHeat-Qf)
-    #     to 3E-10, so adding Qg AND +Qf-DelSoilHeat counts that storage twice.
-    #  2. it omits Qgsn and Qfsn, the snow basal and snow fusion fluxes, which
-    #     o_efl.nc carries.
-    #  3. DelColdCont is itself suspect: srfsn_mod.F90:380-382 shows the snow
-    #     melt term (-PDHTSS(JL,1,14)) commented OUT of DDH index 15, and the
-    #     term integrates to -376 EJ over a single day, which no snowpack can
-    #     do. The snow analogue of the soil identity does not close.
-    # Reported for continuity with earlier numbers, nothing more.
-    eres = (et.get("SWnet") or 0) + (et.get("LWnet") or 0) \
-        + sum(et[n] or 0 for n in ("Qle", "Qh", "Qg", "Qf")) \
-        - sum(et[n] or 0 for n in ("DelSoilHeat", "DelColdCont"))
+    # SNOW COLUMN. The same two-part storage as the soil -- DelColdCont is the
+    # sensible part (DDH index 15) and Qfsn the phase-change part (index 14),
+    # so DelColdCont - Qfsn is the whole pack's storage change. Reported, not
+    # gated: the driving term is the snow tiles' own net atmospheric flux,
+    # which upddiag.F90 computes into GDIAUX but wrtdcdf.F90 never writes, so
+    # there is nothing here to balance it against. ecLand checks this one
+    # internally and per grid point instead (LESNCHECK=.TRUE., threshold
+    # 1e-6 W m-2): measured 2026-10-11, 242225 failing point-timesteps in 4
+    # timesteps before the srfsn_webal_mod.F90/upddiag.F90 fix, 0 after.
+    snow_stor = (et.get("DelColdCont") or 0) - (et.get("Qfsn") or 0)
+    stale_snow = MAXABS.get("DelColdCont", 0.0) > FLUX_BOUND
+    print()
+    print(f"    {'Qgsn':14s} {(et.get('Qgsn') or 0)/1e18:16.4f} EJ")
+    print(f"    {'DelColdCont-Qfsn':14s} {snow_stor/1e18:14.4f} EJ   (full snow storage change)")
+    if stale_snow:
+        print(f"    PRE-FIX OUTPUT -- DelColdCont peaks at {MAXABS['DelColdCont']:.3g} W m-2, which is not")
+        print("                      a flux. This run predates the ecland snow fix, where")
+        print("                      DDH index 15 was C*dT in J m-2 and only snow layer 1")
+        print("                      was read. Both snow terms below are meaningless.")
+
+    # WHOLE SURFACE: reported, never gated, and this is not a defect in the
+    # run. The left-hand side is the net flux into the land surface and the
+    # right-hand side is the storage of the only two reservoirs with storage
+    # diagnostics; FLake, sea ice, interception and the skin layer have none,
+    # so a residual is expected and its size is the size of those reservoirs'
+    # storage change, not an error.
+    # Earlier versions of this script wrote the equation as
+    #   SWnet+LWnet+Qle+Qh+Qg+Qf-DelSoilHeat-DelColdCont
+    # which double-counted the soil column (Qg = -(DelSoilHeat-Qf) to 3e-10)
+    # and omitted Qfsn. On a 1994-01-01 day that form gives 3.556% of net
+    # radiation and the form below gives 1.262%, so the old "0.5-0.96% band"
+    # was defects partly cancelling, not a closure.
+    atm = sum(et[n] or 0 for n in ("SWnet", "LWnet", "Qle", "Qh"))
+    eres = atm - soil_stor - snow_stor
     eref = abs((et.get("SWnet") or 0) + (et.get("LWnet") or 0))
     erel = abs(eres) / eref if eref else float("nan")
     print()
-    print(f"    {'ALL-SURFACE':14s} {eres/1e18:16.4f} EJ   ({erel:.3%} of net radiation)")
-    print("    NOT A CLOSURE -- double-counts the soil column via Qg, omits")
-    print("                     Qgsn/Qfsn, and DelColdCont is unreliable.")
-    print("                     See the comment in this script. Not gating exit.")
+    print(f"    {'SWnet+LWnet+Qle+Qh':18s} {atm/1e18:12.4f} EJ   (net flux into the surface)")
+    print(f"    {'soil+snow storage':18s} {(soil_stor+snow_stor)/1e18:12.4f} EJ")
+    print(f"    {'UNACCOUNTED':18s} {eres/1e18:12.4f} EJ   ({erel:.3%} of net radiation)")
+    print("    NOT A CLOSURE -- FLake, sea ice, interception and the skin layer")
+    print("                     have no storage diagnostic in o_efl.nc. Not gating.")
     if STALE_UNITS:
         print()
         print("    NOTE: " + "/".join(sorted(STALE_UNITS)) + " declared 'J m-2' in this file but")
