@@ -1,0 +1,36 @@
+# Benchmark profiles for scripts/benchmark.py -- see docs/benchmark_contract.md
+# for what each profile actually checks and the current (Gate-0-only)
+# implementation status. A local agent should default to `fast` or `smoke`
+# and never invoke `production` on its own initiative -- see AGENTS.md.
+
+profiles:
+  fast:
+    description: "Syntax + synthetic tests only. No data, no HPC. Seconds."
+    days: 0
+    max_runtime_minutes: 10
+    allow_hpc: false
+    require_confirmation: false
+
+  smoke:
+    description: "One day, global. Validates the complete pipeline end to end."
+    days: 1
+    max_runtime_minutes: 60
+    allow_hpc: false
+    require_confirmation: false
+
+  intermediate:
+    description: "One month, global."
+    months: 1
+    allow_hpc: false
+    require_confirmation: true
+
+  reference:
+    description: "One full year, global -- checked against a global water/energy budget."
+    years: 1
+    allow_hpc: false
+    require_confirmation: true
+
+  production:
+    description: "Multi-year/decadal historical run."
+    require_confirmation: true
+    allow_hpc: true

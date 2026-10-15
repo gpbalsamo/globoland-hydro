@@ -1,0 +1,19 @@
+# Copy to config/paths.yaml (gitignored) and fill in for your machine.
+# No real path belongs in this example file -- placeholders only.
+
+work_dir: /path/to/scratch/wfde5-ecland
+perm_dir: /path/to/permanent/storage/wfde5-ecland
+
+forcing_raw_dir: ${work_dir}/forcing/raw
+forcing_ecland_dir: ${work_dir}/forcing/ecland
+
+surfclim: /path/to/surfclim
+soilinit: /path/to/soilinit
+
+ecland_exe: /path/to/ecland-master-dp
+cama_exe: /path/to/cama-flood-executable   # if run as a separate process
+cama_map_dir: /path/to/camaflood/static_network_maps
+
+cds_api_url: https://cds.climate.copernicus.eu/api
+# CDS API key: set via the standard ~/.cdsapirc mechanism, never in this file
+# or anywhere in git. See forcing/README.md.

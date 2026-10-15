@@ -1,0 +1,34 @@
+# WFDE5_CRU_GPCC forcing configuration.
+#
+# Values here are the ones actually used by liaise-ecland's forcing pipeline
+# (see docs/migration_from_liaise.md and docs/forcing_variables.md) -- not
+# guessed. The CDS dataset itself covers 1979-2024 as of 2026; 2025+ is not
+# yet available because WFDE5 bias-corrects ERA5 against CRU/GPCC's own
+# gauge-based products and inherits their lag by design.
+
+dataset: derived-near-surface-meteorological-variables
+precipitation_correction: CRU_GPCC   # vs. plain CRU (no GPCC gauge merge)
+resolution_deg: 0.5
+timestep: 1h
+start_year: 1979
+end_year: 2024
+
+# CDS request structure: precipitation variables (rainfall_flux, snowfall_flux)
+# are the only ones valid under reference_dataset=cru_and_gpcc; every other
+# variable, including grid_point_altitude, requires reference_dataset=cru.
+# Requesting all variables under one reference_dataset silently returns the
+# wrong (uncorrected) precipitation -- verified in liaise-ecland, not assumed.
+variables_cru:
+  - near_surface_air_temperature      # -> Tair, K
+  - near_surface_specific_humidity    # -> Qair, kg kg-1
+  - near_surface_wind_speed           # -> Wind, m s-1
+  - surface_air_pressure              # -> PSurf, Pa
+  - surface_downwelling_longwave_radiation  # -> LWdown, W m-2
+  - surface_downwelling_shortwave_radiation # -> SWdown, W m-2
+variables_cru_gpcc:
+  - rainfall_flux   # -> Rainf, kg m-2 s-1
+  - snowfall_flux   # -> Snowf, kg m-2 s-1
+
+output:
+  reference_time_units_template: "hours since {start_year}-01-01 00:00:00"
+  calendar: proleptic_gregorian

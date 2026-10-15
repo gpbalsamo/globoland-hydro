@@ -1,0 +1,36 @@
+# Major river gauging stations for discharge validation and the dams experiment.
+#
+# obs_m3s are APPROXIMATE long-term annual means from the literature, NOT a GRDC
+# extraction -- they are good to maybe +-10% and are here to catch order-of-
+# magnitude errors (which is exactly what the 24x DROFUNIT bug was), not to
+# score the model. A real GRDC comparison is still NOT STARTED; see PLAN.md
+# Milestone 6. Do not quote these as observations in a paper.
+#
+# Several of these rivers are heavily regulated in reality (Nile, Volga,
+# Columbia, Yangtze), so the NATURALISED control is not expected to match obs
+# there -- that mismatch is the dam signal, not an error.
+#
+# lon/lat are downstream gauge sites, deliberately not the tidal mouth: the
+# outlet cell of a 15-min network can straddle the coast. extract_gauges.py
+# snaps to the largest-discharge cell within --snap-deg of these coordinates
+# and reports how far it moved, so a bad snap is visible rather than silent.
+name,lon,lat,obs_m3s,station
+Amazon,-55.50,-1.95,175000,Obidos
+Congo,15.30,-4.30,40600,Kinshasa
+Orinoco,-63.60,8.15,33000,Ciudad Bolivar
+Yangtze,117.60,30.80,28500,Datong
+Brahmaputra,89.67,25.18,20000,Bahadurabad
+Mississippi,-90.90,32.30,18400,Vicksburg
+Yenisei,86.50,67.40,18400,Igarka
+Parana,-60.70,-32.70,17000,Timbues
+Lena,127.65,70.70,16900,Kusur
+Ob,66.60,66.60,12500,Salekhard
+Mekong,105.80,15.10,9800,Pakse
+Mackenzie,-133.75,67.45,9000,Arctic Red River
+Amur,135.10,48.50,8800,Khabarovsk
+Volga,44.50,48.70,8100,Volgograd
+Danube,28.70,45.20,6500,Ceatal Izmail
+Niger,6.75,7.80,6100,Lokoja
+Columbia,-121.20,45.60,5400,The Dalles
+Zambezi,33.60,-16.15,3400,Tete
+Nile,30.50,19.20,2800,Dongola

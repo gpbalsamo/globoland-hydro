@@ -1,0 +1,70 @@
+# config_global.yaml.tmpl
+#
+# Template for ecland_create_forcing.py's 2D config (see
+# ${ECLAND_ROOT}/tools/create_forcing/config_2D.yaml for the tool's own
+# reference example). This one is NOT a regional crop: --set to a full-globe
+# bounding box that lands exactly on WFDE5's cell centers, so the resulting
+# surfclim/soilinit share the same grid as forcing/download_wfde5.py's
+# output -- see docs/grid_strategy.md. Rendered (envsubst) by
+# build_global_surfclim_soilinit.sh, not read directly.
+#
+# See PLAN.md Milestone 2's 2026-09-17 investigation note for why this tool
+# was chosen over init_clim.py's older driver (a stale osm_pyutils import).
+
+sites:
+    ftype: 2D
+    group: ${GROUP}
+    sitenames:
+        - GLOBAL
+    iniDate:
+        - ${START_DATE}
+    endDate:
+        - ${END_DATE}
+
+regional:
+    regional: true
+    dx: 0.5
+    # Cell-center corners (not 90/-180/-90/180 grid-line corners) -- this is
+    # what makes the output grid match WFDE5's 360x720 grid exactly
+    # (lat -89.75..89.75, lon -179.75..179.75, confirmed against real
+    # downloaded WFDE5 data, see docs/forcing_variables.md).
+    clatn: 89.75
+    clats: -89.75
+    clonw: -179.75
+    clone: 179.75
+    cmf_res: ''  # unused: prepare_cmf_basin is off (Milestone 4/5, not this step)
+    actions:
+        - prepare_initialconditions_2D: true
+        - prepare_cmf_basin: false
+        - prepare_forcing_2D: false   # we already have our own WFDE5 forcing pipeline
+
+config:
+    workingdir: ${WORKDIR}
+    inidir: ${WORKDIR}
+    sodir: ${OUTDIR}
+    fodir: ${WORKDIR}/unused_forcing_out
+    cmfdir: ${WORKDIR}/unused_cmf
+    scriptsdir: ${ECLAND_ROOT}/tools/create_forcing/scripts/
+    retrieve_with: mars   # avoids CDS quota -- this machine has direct MARS access
+
+initial_conditions:
+    INICLASS: "ea"
+    INISTREAM: oper
+    INIEXPVER: 1
+    INIHOUR: "00:00:00"
+    RESOL: "639"          # ERA5's own native reduced-Gaussian resolution (source grid,
+    GTYPE: "l_2"          # independent of the 0.5 deg *output* grid above)
+    CLIMVERSION: "v015"
+    clim_data_loc: "ecmwf"  # internal ECMWF path: direct file copy, no download
+
+forcing:
+    FORCINGCLASS: "ea"
+    FORCINGSTREAM: oper
+    FORCINGEXPVER: 1
+    FORCINGHOUR: "00:00:00"
+    lapseCorrection: False
+    ORODIFF_FILE: None
+    nthreads: 1
+    forcingCommonName: ""
+    forcingdir: ""
+    SAVE_FORCING_GRIB: false

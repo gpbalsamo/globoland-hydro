@@ -1,0 +1,21 @@
+[project]
+name = "wfde5-ecland"
+version = "0.0.1"
+description = "Global ecLand experiments driven by WFDE5, with runoff prepared for CaMa-Flood routing."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "xarray",
+    "netCDF4",
+    "cdsapi",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

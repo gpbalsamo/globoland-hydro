@@ -1,0 +1,178 @@
+! A/B TEMPLATE -- identical to namelist_cmf_global.tmpl except LWEVAP=true
+! and the 'wevap' diagnostic added to CVARSOUT.
+!
+! LWEVAP makes CaMa-Flood extract open-water evaporation from FLOODPLAIN
+! storage (cmf_calc_stonxt_mod.F90:84-91). ecLand already sends lake-tile
+! evaporation on channel 3 of the coupling buffer (cnt41s.F90:220,
+! -D1STIEVAPU2(:,9,...)); with LWEVAP=false CaMa simply discards it, which
+! is why ~2670 Gt/yr of lake evaporation has no source in our archive.
+!
+! Expect only PARTIAL recovery. The extraction is
+!    DWEVAPEX = MIN( P2FLDSTO, D2FLDFRC*DT*D2WEVAP )
+! so it is capped by floodplain storage and scaled by flood fraction; a
+! permanent lake cell may hold little P2FLDSTO. The unmet demand is dropped
+! silently -- D2WEVAPEX records what WAS extracted, never what was asked.
+! The two switches that would address that, LWEVAPFIX and LWEXTRACTRIV, are
+! DEAD CODE: declared, defaulted, logged, broadcast, consistency-checked,
+! and never read by any computational routine. Setting them does nothing.
+!
+! The ratio (wevap extracted) / (2670 Gt demanded) is the number this run
+! exists to measure.
+! Global CaMa-Flood coupling namelist, generalised from ecland's own
+! official GLOBAL coupled test reference,
+! /perm/pad/ecland/tests/ifsbench/namelist_cmf_2d_gl_t21 (ecland VERSION
+! 2.0.0, tests/ifsbench/test_2d_gl_t21.yaml -- a T21-grid coupled test,
+! job.tasks=2, i.e. real MPI). That reference targets a coarse T21
+! reduced-Gaussian atmospheric grid; this repo's own ecLand grid is a
+! different, unrelated choice (360x720 global 0.5 deg regular lat-lon,
+! per docs/grid_strategy.md's own principle that CaMa-Flood routing
+! resolution and ecLand runoff-generation resolution are independent
+! concerns) -- only the NAMELIST STRUCTURE and the settings NOT tied to a
+! specific grid are carried over unchanged; everything file-path- or
+! date-related is this repo's own.
+!
+! Rendered by ecland's own share/ecland/scripts/ecland_create_namelist.py
+! (-c this file), which fills in {yy}/{mm}/{dd}/{yye}/{mme}/{dde} from the
+! actual ecLand-side forcing file's own start/end dates -- see
+! run/run_ecland.sh. Everything else here is literal, not derived
+! (build_global_cmf_fixdir.sh's / derive_global_cmf_weights.sh's real
+! output paths, and DT/IFRQ_INP matching this repo's own TCOUPFREQ=1 hour
+! in namelist/templates/namelist_ecland_50R1_cmf -- hourly coupling,
+! matching real ECMWF operational configuration per explicit request,
+! 2026-09-20).
+!
+! DROFUNIT/CROFCDF/CVNROF/CVNSUB below: kept EXACTLY as the official T21
+! reference has them, but now CONFIRMED (2026-09-20, by reading
+! src/surf/cmflood.cmake + src/surf/offline/cmfld1s.F90 +
+! src/surf/offline/driver/cnt41s.F90 directly) to be dead/unused in this
+! executable. `CMF_FORCING_GET` (the routine that reads CROFCDF/the
+! CROFDIR binary-file path) is called ONLY from cmfld1s.F90, a SEPARATE,
+! standalone CaMa-Flood-only driver compiled into a DIFFERENT executable
+! (ecland-master-cmflood-dp, despite its name -- see run/run_ecland.sh's
+! own comment). The online-coupled executable this repo actually uses
+! (plain ecland-master-dp, built from master1s.F90) calls
+! CMF_FORCING_PUT + CMF_DRV_ADVANCE directly from cnt41s.F90, in-memory,
+! and never reaches CMF_FORCING_GET at all. Confirmed by a real crash
+! (ecland-master-cmflood-dp trying and failing to open
+! ./runoff/Roff____19880101.one) before this was understood.
+
+&NRUNVER
+LADPSTP=.TRUE.
+LFPLAIN=.TRUE.
+LKINE=.FALSE.
+LFLDOUT=.TRUE.
+LPTHOUT=.TRUE.
+LDAMOUT  = .FALSE.
+LROSPLIT=true
+LWEVAP=true
+LWEVAPFIX=.FALSE
+LWEXTRACTRIV=FALSE
+LGDWDLY=false
+LSLPMIX=.FALSE.
+LMEANSL=.FALSE.
+LSEALEV=.FALSE.
+! LRESTART below is the COLD-START default and is PATCHED TO .TRUE. by
+! run/run_ecland.sh whenever CMF_RESTART_FROM is set (which submit_campaign.py
+! does for every segment after the first). Do not read the literal value here
+! as what a campaign segment actually ran with -- check the rendered namelist,
+! or the "LRESTART" line in the run's own log_CaMa.txt-<rank>.
+!
+! This file hardcoded LRESTART=false and nothing staged a CaMa restart until
+! 2026-10-10, so all 37 segments of both campaigns cold-started CaMa with an
+! empty river network while ecLand chained correctly. See PLAN.md.
+LRESTART=false
+LSTOONLY=false
+LOUTPUT=.TRUE.
+LGRIDMAP=.TRUE.
+LLEAPYR=.TRUE.
+LMAPEND=.FALSE.
+LBITSAFE=.TRUE.
+LSLOPEMOUTH=.FALSE.
+/
+&NDIMTIME
+CDIMINFO = "diminfo.txt"
+DT       =  3600   ! seconds -- must equal TCOUPFREQ (hours) * 3600
+IFRQ_INP = 1        ! hours -- matches TCOUPFREQ=1 (hourly coupling)
+/
+&NPARAM
+PMANRIV  = 0.03D0
+PMANFLD  = 0.10D0
+PGRV     = 9.8D0
+PDSTMTH  = 25000.D0
+PCADP    = 0.7
+PMINSLP  = 1.D-5
+IMIS     = -9999
+RMIS     = 1.E20
+DMIS     = 1.E20
+CSUFBIN  = '.bin'
+CSUFVEC  = '.vec'
+CSUFPTH  = '.pth'
+CSUFCDF  = '.nc'
+/
+&NSIMTIME
+SYEAR={yy}
+SMON={mm}
+SDAY={dd}
+SHOUR=00
+EYEAR={yye}
+EMON={mme}
+EDAY={dde}
+! EHOUR is the END hour of the CaMa integration and also names the restart
+! file ecland_run_model.sh moves (restart<EYEAR><EMON><EDAY><EHOUR>.nc).
+! Segments now run 00:00 1 Jan -> 00:00 1 Jan of Y+1, so the last forcing
+! record (and hence {yye}/{mme}/{dde}) is 1 Jan of Y+1 at hour 00, NOT
+! 31 Dec at hour 23. Leaving this at 23 would make CaMa integrate an extra
+! 23 h past the forcing and look for a restart file that was never written.
+EHOUR=00
+/
+&NMAP
+LMAPCDF=.TRUE.
+CPTHOUT="__CAMA_BIFPRM__"
+CRIVCLINC="__CAMA_RIVCLIM__"
+CRIVPARNC="__CAMA_RIVPAR__"
+CMPIREGNC="__CAMA_MPIREG__"
+/
+&NRESTART
+CRESTDIR="./"
+CRESTSTO=""
+! netCDF restarts, not the T21 reference's plain-binary default: aligned
+! with what ECMWF operations does, and it also happens to fix a real
+! mismatch -- ecland_run_model.sh's cleanup hardcodes
+! `mv restart<YYYYMMDDHH>.nc`, so with LRESTCDF=.FALSE. CaMa wrote
+! restart1988013123.bin (+ .bin.pth) and that mv failed at the very end of
+! an otherwise fully successful month-long run (2026-09-20).
+LRESTCDF=.TRUE.
+CVNREST="restart"
+IFRQ_RST=0
+/
+&NFORCE
+LINPCDF=false
+LINTERP=true
+LINPEND  = .FALSE.
+LITRPCDF = .TRUE.
+CINPMAT  ="__CAMA_INPMAT__"
+DROFUNIT =3600.
+CROFCDF="runoff.nc"
+CVNROF   = "Qs"
+CVNSUB   = "Qsb"
+SYEARIN={yy}
+SMONIN={mm}
+SDAYIN={dd}
+SHOURIN=00
+/
+&NOUTPUT
+COUTDIR="__CAMA_OUTDIR__"
+CVARSOUT="rivsto,fldsto,totout,rivdph,wevap"
+COUTTAG=""
+LOUTVEC=.FALSE.
+LOUTCDF=.TRUE.
+NDLEVEL=0
+! IFRQ_OUT is CaMa's own output-write frequency, a SEPARATE setting from
+! IFRQ_INP (coupling frequency) above -- hourly *output* over a full month
+! (744 steps x 4 vars x 720x1440) pushed this run to ~17.8 GiB resident and
+! got OOM-killed by the job's memory cgroup (confirmed 2026-09-20). Keep
+! coupling itself hourly (matches the operational configuration this is
+! meant to mimic) but write output daily -- this is a reporting-granularity
+! choice, not part of "does it mimic operations".
+IFRQ_OUT = 24       ! hours
+/
