@@ -8,3 +8,4 @@ __pycache__/
 *.tss
 *.log
 slurm-*.out
+ecsbatch.log.*
