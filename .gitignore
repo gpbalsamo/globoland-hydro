@@ -9,3 +9,4 @@ __pycache__/
 *.log
 slurm-*.out
 ecsbatch.log.*
+reports/*.json
