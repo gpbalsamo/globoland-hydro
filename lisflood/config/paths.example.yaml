@@ -1,0 +1,26 @@
+# Copy to config/paths.yaml (gitignored) and edit for your machine.
+# ${key} expands from entries above it; ${repo_root} is this repository.
+
+# GloFAS operational area -- READ-ONLY INPUT, never written to (AGENTS.md).
+glofas_root:        /path/to/cems/floods/glofas
+glofas_staticmaps:  ${glofas_root}/assets/5.0/staticMaps      # global v5 3' maps, used IN PLACE (no cut)
+glofas_reanalysis:  ${glofas_root}/emos/longflow_glofas       # operational settings.xml + 01/01/1988 states
+
+# LISFLOOD / LISVAP
+lisflood_env:       /path/to/lisflood/5.0.0/lisflood-env      # module lisflood/5.0.0
+lisvap_pkg:         /path/to/lisvap_pkg                       # lisflood-lisvap==1.4.2
+lisvap_tpl:         /path/to/lisvap_tpl/settings_tpl.xml      # from the lisflood-lisvap sdist
+
+# Forcing: the SAME global WFDE5 archive ecLand uses. Read-only; never deleted by this repo.
+wfde5_global_dir:     /path/to/wfde5-ecland/forcing/WFDE5_CRU_GPCC
+wfde5_global_pattern: "WFDE5_CRU_GPCC_{year}.nc"
+
+# Sibling ecLand repository, for the runoff comparison (its run/output/Y<year>_* o_wat.nc).
+ecland_repo:        /path/to/wfde5-ecland
+
+# WORK DIR MUST NOT BE ON $PERM. A global 0.05 deg year is ~90 GB of meteo + LISVAP output and
+# 37 years of it would be ~3.3 TB; $PERM is 10 TB total and shared with everything else. $SCRATCH
+# has room and is the right home for staging that is deleted again after each year.
+work_dir:           /path/to/scratch/wfde5-glofas
+# Small, permanent products that DO live with the repository (0.5 deg aggregate, reports).
+product_dir:        ${repo_root}/products
