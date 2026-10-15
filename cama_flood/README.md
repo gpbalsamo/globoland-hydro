@@ -25,10 +25,22 @@ still open** — see `PLAN.md` Milestone 4/5, 2026-09-20.
   used here; superseded by the above for a global run.
 - Coupled run driver lives in `run/run_ecland.sh` (`RUN_CMF=true`) and
   `run/run_ecland_cmf.slurm`, not here — see `run/README.md`.
-- `aggregate_runoff_to_daily.py`, `remap_runoff.py`, `validate_remapping.py`:
-  these describe an **offline/decoupled** runoff hand-off (matching
-  `liaise-ecland`'s CaMa-Flood-GPU bridge work), a different architecture
-  from the **online in-memory** 1-way coupling this repo actually uses
+- `validate_remapping.py` — the water-conservation gate CLAUDE.md requires.
+  **Implemented 2026-10-15 and it applies to the online path**, which was
+  the error in the earlier note here: the remap is not an offline step this
+  repo skips, it is what `CMF_FORCING_PUT` does in memory every coupling
+  step, using the same `inpmat.nc` this script reads. Given a grid file and
+  `inpmat.nc` it reports coverage from the weights alone; add `--runoff` and
+  it computes what ecLand produced against what CaMa received, decomposes
+  the difference by cause, and exits nonzero above `--tolerance`. Measured
+  on Y2001: 3.3732% (land convention, PASS) / 8.7443% (grid-box convention,
+  FAIL). The 1e-9 bar the design doc asks for is unreachable because ecLand's
+  land mask and CaMa's catchment map disagree cell by cell; the script says
+  so rather than hiding it in a loose tolerance.
+- `aggregate_runoff_to_daily.py`, `remap_runoff.py`: these describe an
+  **offline/decoupled** runoff hand-off (matching `liaise-ecland`'s
+  CaMa-Flood-GPU bridge work), a different architecture from the **online
+  in-memory** 1-way coupling this repo actually uses
   (`CMF_FORCING_PUT`/`CMF_DRV_ADVANCE`, called directly from ecLand's own
   offline driver, no runoff file ever written or read). Still relevant if
   this repo later wants a decoupled chain (e.g. feeding CaMa-Flood-GPU), but

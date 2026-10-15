@@ -652,11 +652,24 @@ therefore only needed if this repo later wants a decoupled chain as well.
       `derive_cmf_weights.sh` by dropping its clip and mpireg-flattening
       steps entirely). Real run at `glb_15min`: `inpmat.nc` mapping this
       repo's own 360x720 ecLand grid onto the global river network,
-      **0.00% area-conservation error** after correction.
-- [ ] Temporal aggregation / area conversion / offline conservation check
-      (`aggregate_runoff_to_daily.py`, `validate_remapping.py`) —
-      **NOT STARTED, and not on the critical path** for the online coupled
-      configuration (see scope correction above).
+      **0.00% area-conservation error** after correction. That figure is the
+      weight-generation step's own area check. The complementary question --
+      how much of *ecLand's* land area the network accepts -- is a different
+      quantity, answered by `validate_remapping.py`: **90.8%**, the shortfall
+      being Antarctica (no catchments south of ~56S) plus coastal
+      partial-land cells.
+- [x] Offline conservation check — **DONE** 2026-10-15,
+      `cama_flood/validate_remapping.py` (new). Compares what ecLand
+      produces against what CaMa receives through `inpmat.nc`, prints the
+      numbers and the per-cause decomposition, and exits nonzero above
+      `--tolerance`. Measured on Y2001: **1,229.1 km3 = 3.3732%** under the
+      land-area convention (PASS at the 5% default) and **3,373.7 km3 =
+      8.7443%** under the grid-box convention (FAIL, deliberately). The
+      second reproduces the 8.86% computed by hand from `inpmat.nc` in
+      Milestone 5, from a different direction.
+      `aggregate_runoff_to_daily.py` remains **NOT STARTED, and not on the
+      critical path** for the online coupled configuration (see scope
+      correction above).
 
 ## Milestone 5 — CaMa-Flood
 
@@ -1326,12 +1339,38 @@ recorded so the same ground is not re-walked:
 - `damsto` was reported as absent from the CaMa restart; it is present. The
   diff that "showed" it missing skipped variables absent from the control.
 
-Also: **`cama_flood/validate_remapping.py` does not exist.** CLAUDE.md
-specifies it as the hard water-conservation gate for every ecLand->CaMa remap,
-with a nonzero exit above tolerance. The remap has therefore never been
-conservation-checked in this project, and it is the tool that would have given
-the 8.86% remap loss immediately instead of a hand computation from
-`inpmat.nc`. **NOT STARTED.**
+Also: **`cama_flood/validate_remapping.py` now exists** (2026-10-15), the
+hard water-conservation gate CLAUDE.md specifies. It reproduces the ~3,400
+km3/yr from a third direction and, more usefully, says where it goes. On
+Y2001, grid-box convention:
+
+        unmapped land, lat < -60 (Antarctica)      113.3 km3    0.29%
+        unmapped land, elsewhere                     0.2 km3    0.00%
+        mapped cells, inpa < source area          3287.6 km3    8.52%
+        mapped cells, inpa > source area           -27.4 km3   -0.07%
+        total                                     3373.7 km3    8.74%
+
+**It is not Antarctica.** 98% of the *unmapped area* is Antarctic (26,678 of
+26,690 unmapped land cells, 1.387e13 of 1.389e13 m2) but it carries 3% of the
+loss, because Antarctic runoff per m2 is negligible -- an area table read
+without weighting by runoff says the opposite of the truth, and I made exactly
+that error before computing this. The loss is on *mapped* cells, and it is the
+land-area convention: `inpa` tracks `gridbox area x landsea` to a median ratio
+of **1.0011** (against 0.9983 for `inpa/gridbox area`), so `inpa` IS the land
+area. 85% of the deficit comes from cells with `landsea < 0.95`, i.e. coastal
+partial-land cells where ecLand's land mask and CaMa's catchment map disagree.
+Against `area x landsea` the residual falls to **1,229.1 km3 (3.373%)** and is
+two-sided -- 1,951.5 km3 where the catchment is smaller, 722.4 km3 where it is
+larger -- so it is a coverage mismatch between two land masks, not a one-way
+leak from a sign or weight error. Per cell the two masks agree poorly (1st
+percentile of `inpa/source` 0.354, 99th 1.773); only the global integral
+agrees to a few percent, which is worth remembering before using `inpa` as a
+per-cell land area.
+
+The 1e-9 bar `docs/cama_interface.md` asks for is therefore unreachable here,
+and saying so is part of the check: the two models do not agree about where
+the land is. The default `--tolerance` is 5%, which the land convention passes
+with room to see drift and the grid-box convention fails.
 
 ## Open blockers
 

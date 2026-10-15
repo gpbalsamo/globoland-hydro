@@ -1,6 +1,11 @@
 # ecLand → CaMa-Flood runoff interface
 
-Status: **design document, not yet implemented**. See `PLAN.md` Milestone 4.
+Status: **design document**, except for the conservation gate, which is
+implemented: `cama_flood/validate_remapping.py` (2026-10-15). See `PLAN.md`
+Milestone 4. The offline hand-off this document describes is not the
+architecture in use -- the repo couples online, in memory -- but the remap
+itself and its conservation requirement are identical either way, because
+both paths use the same `inpmat.nc`.
 
 ## Pipeline
 
@@ -86,6 +91,20 @@ configurable tolerance. This check must exist and pass before any routing
 run is trusted, and its numbers are reported, not just its pass/fail — a
 near-precision-level residual and a residual just under the tolerance are
 both "PASS" but are not the same finding.
+
+**Measured, 2026-10-15, and the 1e-9 bar above is not attainable here.**
+`inpa` is the *land* area of each source cell (median `inpa/(area x landsea)`
+= 1.0011), so the comparison depends on which source area you use, and
+`validate_remapping.py` makes that a flag rather than a hidden default. On
+Y2001: 36,436.9 km3 produced against 35,207.8 km3 received = **3.373%** with
+`--convention land`, and 38,581.5 against 35,207.8 = **8.744%** with
+`--convention gridbox`. The residual is a coverage mismatch between two land
+masks, not a leak: it is two-sided (1,951.5 km3 where CaMa's catchment is
+smaller, 722.4 km3 where it is larger), and per cell the two disagree by far
+more than the integral does (1st percentile of `inpa/source` 0.354, 99th
+1.773). Antarctica is 98% of the unmapped *area* and 3% of the loss -- do not
+read the area table without weighting by runoff. The default tolerance is
+therefore 5%, not 1e-9, and the number is printed every time so drift shows.
 
 ## Weight generation, reused from liaise-ecland with the domain-clip removed
 
