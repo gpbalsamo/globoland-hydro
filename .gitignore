@@ -1,0 +1,10 @@
+config/paths.yaml
+work/
+products/
+__pycache__/
+*.pyc
+*.nc
+*.grib
+*.tss
+*.log
+slurm-*.out

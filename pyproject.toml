@@ -1,0 +1,8 @@
+[project]
+name = "wfde5-glofas"
+version = "0.1.0"
+description = "Global GloFAS v5 / LISFLOOD 5.0.0 on WFDE5 forcing, retaining runoff for comparison with ecLand and aiLand cross-training"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
